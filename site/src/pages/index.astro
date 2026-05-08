@@ -1,5 +1,24 @@
 ---
+import Card from '../components/Card.astro';
+import { getCollection, render } from 'astro:content';
+
+const rawCards = await getCollection('cards');
+
+// Derive children and backlinks from the collection
+const cards = await Promise.all(
+  rawCards.map(async (entry) => {
+    const { Content } = await render(entry);
+    const children = rawCards
+      .filter(c => c.data.parent === entry.id)
+      .map(c => c.id);
+    const backlinks = rawCards
+      .filter(c => c.data.related.includes(entry.id))
+      .map(c => c.id);
+    return { entry, Content, children, backlinks };
+  })
+);
 ---
+
 <!doctype html>
 <html lang="en">
   <head>
@@ -8,26 +27,231 @@
     <title>field notes</title>
     <style>
       *, *::before, *::after { box-sizing: border-box; }
+
       html, body {
         margin: 0;
+        padding: 0;
+        width: 100%;
         height: 100%;
+        overflow: hidden;
       }
-      body {
-        display: flex;
+
+      #canvas {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        background: #f4f4f2;
+      }
+
+      /* ── Modal overlay ─────────────────────────────────── */
+      #card-modal {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.25);
+        z-index: 1000;
         align-items: center;
         justify-content: center;
-        background: #fff;
       }
-      p {
-        margin: 0;
+
+      #card-modal.visible {
+        display: flex;
+      }
+
+      #modal-inner {
+        background: #fff;
+        border-radius: 12px;
+        width: 560px;
+        max-width: 90vw;
+        max-height: 80vh;
+        padding: 28px 32px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.18);
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        transform-origin: center center;
+        overflow: hidden;
+      }
+
+      #modal-close {
+        position: absolute;
+        top: 14px;
+        right: 16px;
+        background: none;
+        border: none;
+        font-size: 1.1rem;
+        cursor: pointer;
+        color: #bbb;
+        line-height: 1;
+        padding: 4px 6px;
+        border-radius: 4px;
+        transition: color 0.15s, background 0.15s;
+      }
+
+      #modal-close:hover {
+        color: #333;
+        background: #f0f0f0;
+      }
+
+      #modal-title {
         font-family: system-ui, sans-serif;
-        font-size: 1rem;
-        color: #999;
-        letter-spacing: 0.02em;
+        font-size: 1.05rem;
+        font-weight: 700;
+        color: #111;
+        margin: 0 0 14px 0;
+        padding-right: 28px;
+        letter-spacing: 0.01em;
+      }
+
+      #modal-body {
+        font-family: system-ui, sans-serif;
+        font-size: 0.88rem;
+        color: #444;
+        line-height: 1.65;
+        overflow-y: auto;
+        flex: 1;
       }
     </style>
   </head>
   <body>
-    <p>field notes</p>
+    <div id="canvas">
+      {cards.map(({ entry, Content, children, backlinks }) => (
+        <Card
+          id={entry.id}
+          title={entry.data.title}
+          parent={entry.data.parent}
+          related={entry.data.related}
+          children={children}
+          backlinks={backlinks}
+          type={entry.data.type}
+          x={entry.data.x}
+          y={entry.data.y}
+        >
+          <Content />
+        </Card>
+      ))}
+    </div>
+
+    <div id="card-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div id="modal-inner">
+        <button id="modal-close" aria-label="Close">✕</button>
+        <div id="modal-title"></div>
+        <div id="modal-body"></div>
+      </div>
+    </div>
+
+    <script>
+      const modal = document.getElementById('card-modal') as HTMLElement;
+      const modalInner = document.getElementById('modal-inner') as HTMLElement;
+      const modalTitle = document.getElementById('modal-title') as HTMLElement;
+      const modalBody = document.getElementById('modal-body') as HTMLElement;
+      const modalClose = document.getElementById('modal-close') as HTMLButtonElement;
+
+      let originRect: DOMRect | null = null;
+      let isAnimating = false;
+
+      function openCard(cardEl: HTMLElement) {
+        if (isAnimating) return;
+        isAnimating = true;
+
+        originRect = cardEl.getBoundingClientRect();
+
+        // Populate content from the card's <template> panel
+        modalTitle.textContent = cardEl.dataset.title ?? '';
+        modalBody.innerHTML = '';
+        const panelId = `panel-${cardEl.dataset.cardId}`;
+        const panel = document.getElementById(panelId) as HTMLTemplateElement | null;
+        if (panel) {
+          modalBody.appendChild(panel.content.cloneNode(true));
+        }
+
+        // Show modal (opacity 0) so we can measure it
+        modal.style.opacity = '0';
+        modal.style.transition = 'none';
+        modal.classList.add('visible');
+
+        // Measure the modal at its natural centered size
+        const modalW = modalInner.offsetWidth;
+        const modalH = modalInner.offsetHeight;
+
+        // Card center → screen center delta
+        const cardCX = originRect.left + originRect.width / 2;
+        const cardCY = originRect.top + originRect.height / 2;
+        const screenCX = window.innerWidth / 2;
+        const screenCY = window.innerHeight / 2;
+
+        const tx = cardCX - screenCX;
+        const ty = cardCY - screenCY;
+        const scaleX = originRect.width / modalW;
+        const scaleY = originRect.height / modalH;
+
+        // Start: place modal at card's position + scale
+        modalInner.style.transition = 'none';
+        modalInner.style.transform = `translate(${tx}px, ${ty}px) scale(${scaleX}, ${scaleY})`;
+
+        // Force reflow so the starting transform is applied
+        void modalInner.offsetWidth;
+
+        // Animate to center
+        modalInner.style.transition = 'transform 0.35s cubic-bezier(0.4, 0, 0.2, 1)';
+        modal.style.transition = 'opacity 0.25s ease';
+        modalInner.style.transform = 'translate(0, 0) scale(1)';
+        modal.style.opacity = '1';
+
+        modalInner.addEventListener('transitionend', () => { isAnimating = false; }, { once: true });
+      }
+
+      function closeCard() {
+        if (!originRect || isAnimating) return;
+        isAnimating = true;
+
+        const modalW = modalInner.offsetWidth;
+        const modalH = modalInner.offsetHeight;
+
+        const cardCX = originRect.left + originRect.width / 2;
+        const cardCY = originRect.top + originRect.height / 2;
+        const screenCX = window.innerWidth / 2;
+        const screenCY = window.innerHeight / 2;
+
+        const tx = cardCX - screenCX;
+        const ty = cardCY - screenCY;
+        const scaleX = originRect.width / modalW;
+        const scaleY = originRect.height / modalH;
+
+        modalInner.style.transition = 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)';
+        modal.style.transition = 'opacity 0.25s ease 0.05s';
+        modalInner.style.transform = `translate(${tx}px, ${ty}px) scale(${scaleX}, ${scaleY})`;
+        modal.style.opacity = '0';
+
+        modalInner.addEventListener('transitionend', () => {
+          modal.classList.remove('visible');
+          modal.style.opacity = '';
+          modal.style.transition = '';
+          modalInner.style.transform = '';
+          modalInner.style.transition = '';
+          originRect = null;
+          isAnimating = false;
+        }, { once: true });
+      }
+
+      // Card click listeners
+      document.querySelectorAll<HTMLElement>('.card').forEach(card => {
+        card.addEventListener('click', () => openCard(card));
+        card.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') openCard(card);
+        });
+      });
+
+      // Close on backdrop click
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeCard();
+      });
+
+      modalClose.addEventListener('click', closeCard);
+
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && modal.classList.contains('visible')) closeCard();
+      });
+    </script>
   </body>
 </html>

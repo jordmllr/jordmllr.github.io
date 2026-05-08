@@ -1,0 +1,122 @@
+---
+interface Props {
+  id: string;
+  title: string;
+  parent: string | null;
+  related: string[];
+  children: string[];
+  backlinks: string[];
+  type: 'content' | 'visualization';
+  x: number;
+  y: number;
+}
+
+const { id, title, parent, related, children, backlinks, type, x, y } = Astro.props;
+---
+
+<div
+  class="card"
+  id={`card-${id}`}
+  style={`left: ${x}px; top: ${y}px;`}
+  data-card-id={id}
+  data-title={title}
+  data-type={type}
+  role="button"
+  tabindex="0"
+>
+  <div class="card-title">{title}</div>
+  <div class="card-preview">
+    <slot />
+  </div>
+</div>
+
+<!-- Hidden expanded content panel — revealed by the modal -->
+<template id={`panel-${id}`}>
+  <slot />
+  {(parent || related.length > 0 || children.length > 0 || backlinks.length > 0) && (
+    <div class="card-meta">
+      {parent && <div class="meta-row"><span class="meta-label">parent</span><span class="meta-value">{parent}</span></div>}
+      {children.length > 0 && <div class="meta-row"><span class="meta-label">children</span><span class="meta-value">{children.join(', ')}</span></div>}
+      {related.length > 0 && <div class="meta-row"><span class="meta-label">relates to</span><span class="meta-value">{related.join(', ')}</span></div>}
+      {backlinks.length > 0 && <div class="meta-row"><span class="meta-label">backlinks</span><span class="meta-value">{backlinks.join(', ')}</span></div>}
+    </div>
+  )}
+</template>
+
+<style>
+  .card {
+    position: absolute;
+    width: 160px;
+    min-height: 80px;
+    background: #ffffff;
+    border: 1px solid #e2e2e2;
+    border-radius: 8px;
+    padding: 12px 14px;
+    cursor: pointer;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.07);
+    transition: box-shadow 0.2s ease, transform 0.15s ease;
+    user-select: none;
+    overflow: hidden;
+  }
+
+  .card:hover {
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+    transform: translateY(-2px);
+  }
+
+  .card-title {
+    font-family: system-ui, sans-serif;
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #1a1a1a;
+    margin-bottom: 6px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    letter-spacing: 0.01em;
+  }
+
+  .card-preview {
+    font-family: system-ui, sans-serif;
+    font-size: 0.68rem;
+    color: #999;
+    line-height: 1.5;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    pointer-events: none;
+  }
+
+  .card-preview :global(p) {
+    margin: 0;
+  }
+
+  .card-meta {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid #eee;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .meta-row {
+    font-family: system-ui, sans-serif;
+    font-size: 0.75rem;
+    display: flex;
+    gap: 8px;
+  }
+
+  .meta-label {
+    color: #aaa;
+    min-width: 72px;
+  }
+
+  .meta-value {
+    color: #666;
+    font-family: monospace;
+    font-size: 0.7rem;
+    word-break: break-all;
+  }
+</style>
